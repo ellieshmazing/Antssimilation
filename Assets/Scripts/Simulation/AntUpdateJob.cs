@@ -43,7 +43,9 @@ public struct AntUpdateJob : IJobParallelFor
         if (ObstacleAt(posR)) sR = -1f;
 
         float desiredTurn;
-        if (sF >= sL && sF >= sR)
+        if (sF < 0f && sL < 0f && sR < 0f)
+            desiredTurn = ant.rng.NextFloat(-1f, 1f) > 0f ? maxTurnSpeed * deltaTime : -maxTurnSpeed * deltaTime;
+        else if (sF >= sL && sF >= sR)
             desiredTurn = 0f;
         else if (sL > sR)
             desiredTurn = +maxTurnSpeed * deltaTime;
@@ -58,9 +60,21 @@ public struct AntUpdateJob : IJobParallelFor
 
         ant.position += new float2(math.cos(ant.angle), math.sin(ant.angle)) * ant.speed * deltaTime;
 
+        BounceOffWalls(ref ant);
         CheckStateTransitions(ref ant);
 
         antData[index] = ant;
+    }
+
+    void BounceOffWalls(ref AntData ant)
+    {
+        float2 worldMax = worldOrigin + worldSize;
+
+        if (ant.position.x < worldOrigin.x) { ant.position.x = worldOrigin.x; ant.angle = math.PI - ant.angle; }
+        else if (ant.position.x > worldMax.x) { ant.position.x = worldMax.x; ant.angle = math.PI - ant.angle; }
+
+        if (ant.position.y < worldOrigin.y) { ant.position.y = worldOrigin.y; ant.angle = -ant.angle; }
+        else if (ant.position.y > worldMax.y) { ant.position.y = worldMax.y; ant.angle = -ant.angle; }
     }
 
     void CheckStateTransitions(ref AntData ant)
@@ -72,6 +86,7 @@ public struct AntUpdateJob : IJobParallelFor
                 if (math.distance(ant.position, foodPositions[i]) < foodDetectionRadius)
                 {
                     ant.state = 1;
+                    ant.angle += math.PI;
                     break;
                 }
             }
@@ -79,7 +94,10 @@ public struct AntUpdateJob : IJobParallelFor
         else
         {
             if (math.distance(ant.position, colonyPos) < colonyDetectionRadius)
+            {
                 ant.state = 0;
+                ant.angle += math.PI;
+            }
         }
     }
 

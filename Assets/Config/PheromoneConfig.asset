@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 961681da34af5e546bcc6c22cc003bdf, type: 3}
+  m_Name: PheromoneConfig
+  m_EditorClassIdentifier: Assembly-CSharp::PheromoneConfig
+  sensorAngle: 45
+  sensorDist: 2
+  maxTurnSpeed: 180
+  randomPerturbation: 0.1
+  antSpeed: 5
+  depositAmount: 1
+  evaporationRate: 0.985
+  diffusionKernelRadius: 1
+  pheromoneTextureSize: 512
+  foodDetectionRadius: 2
+  colonyDetectionRadius: 2

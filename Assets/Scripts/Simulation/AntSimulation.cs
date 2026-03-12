@@ -3,6 +3,7 @@ using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
 
 [DefaultExecutionOrder(100)]
@@ -22,6 +23,13 @@ public class AntSimulation : MonoBehaviour
     [SerializeField] Mesh antMesh;
     [SerializeField] Material antMaterial;
     [SerializeField] float antScale = 0.1f;
+
+    [Header("Visualization")]
+    [SerializeField] Shader pheromoneVisShader;
+    [SerializeField] Color foodTrailColor = new Color(1f, 0.3f, 0f);
+    [SerializeField] Color homeTrailColor = new Color(0f, 0.7f, 1f);
+    [SerializeField] float visBrightness = 3f;
+    [SerializeField] bool showPheromoneVis = true;
 
     [Header("Obstacle")]
     [SerializeField] Texture2D obstacleMaskTexture;
@@ -44,6 +52,9 @@ public class AntSimulation : MonoBehaviour
     int diffuseHKernel;
     int diffuseVKernel;
 
+    Material pheromoneMaterial;
+    Mesh visQuad;
+
     Matrix4x4[] matrices;
     Vector4[] antDataVectors;
     Matrix4x4[] batchMatrices;
@@ -60,12 +71,18 @@ public class AntSimulation : MonoBehaviour
 
     void Start()
     {
+        if (antMesh == null) antMesh = CreateAntQuad();
+        if (antMaterial == null) antMaterial = CreateDefaultAntMaterial();
+
         int texSize = config.PheromoneTextureSize;
 
         pheromoneRT = CreatePheromoneRT(texSize);
         tempRT = CreatePheromoneRT(texSize);
 
         cpuMirror = new NativeArray<Color32>(texSize * texSize, Allocator.Persistent);
+
+        if (obstacleMaskTexture == null)
+            obstacleMaskTexture = CreateDefaultObstacleMask(texSize);
 
         InitializeObstacleMask(texSize);
         InitializeAnts();
@@ -89,6 +106,8 @@ public class AntSimulation : MonoBehaviour
         batchMatrices = new Matrix4x4[1023];
         batchVectors = new Vector4[1023];
         mpb = new MaterialPropertyBlock();
+
+        BuildVisResources();
     }
 
     void Update()
@@ -146,13 +165,19 @@ public class AntSimulation : MonoBehaviour
         // 6. Request async readback
         AsyncGPUReadback.Request(pheromoneRT, 0, TextureFormat.RGBA32, OnReadbackComplete);
 
-        // 7. Render ants
+        // 7. Render pheromone gradient and ants
+        if (Keyboard.current.pKey.wasPressedThisFrame)
+            showPheromoneVis = !showPheromoneVis;
+
+        if (showPheromoneVis)
+            RenderPheromoneVis();
+
         RenderAnts();
     }
 
     void OnReadbackComplete(AsyncGPUReadbackRequest request)
     {
-        if (request.hasError) return;
+        if (request.hasError || !cpuMirror.IsCreated) return;
         cpuMirror.CopyFrom(request.GetData<Color32>());
         cpuMirrorReady = true;
     }
@@ -171,6 +196,8 @@ public class AntSimulation : MonoBehaviour
 
         antGpuBuffer?.Release();
         gaussianWeightsBuffer?.Release();
+
+        if (pheromoneMaterial != null) Destroy(pheromoneMaterial);
     }
 
     // --- Initialization ---
@@ -299,6 +326,30 @@ public class AntSimulation : MonoBehaviour
 
     // --- Rendering ---
 
+    void BuildVisResources()
+    {
+        if (pheromoneVisShader == null)
+            pheromoneVisShader = Shader.Find("Simulation/PheromoneVis");
+
+        pheromoneMaterial = new Material(pheromoneVisShader);
+        pheromoneMaterial.SetTexture("_PheromoneTex", pheromoneRT);
+        pheromoneMaterial.SetColor("_FoodColor", foodTrailColor);
+        pheromoneMaterial.SetColor("_HomeColor", homeTrailColor);
+        pheromoneMaterial.SetFloat("_Brightness", visBrightness);
+
+        visQuad = CreateAntQuad();
+    }
+
+    void RenderPheromoneVis()
+    {
+        var matrix = Matrix4x4.TRS(
+            new Vector3(0f, 0f, 1f),
+            Quaternion.identity,
+            new Vector3(worldSize, worldSize, 1f)
+        );
+        Graphics.DrawMesh(visQuad, matrix, pheromoneMaterial, 0);
+    }
+
     void RenderAnts()
     {
         if (antMesh == null || antMaterial == null) return;
@@ -348,5 +399,70 @@ public class AntSimulation : MonoBehaviour
             weights[i] /= sum;
 
         return weights;
+    }
+
+    static Mesh CreateAntQuad()
+    {
+        var mesh = new Mesh
+        {
+            name = "AntQuad",
+            vertices = new[]
+            {
+                new Vector3(-0.5f, -0.5f, 0f),
+                new Vector3( 0.5f, -0.5f, 0f),
+                new Vector3( 0.5f,  0.5f, 0f),
+                new Vector3(-0.5f,  0.5f, 0f)
+            },
+            uv = new[]
+            {
+                new Vector2(0f, 0f),
+                new Vector2(1f, 0f),
+                new Vector2(1f, 1f),
+                new Vector2(0f, 1f)
+            },
+            triangles = new[] { 0, 2, 1, 0, 3, 2 }
+        };
+        mesh.RecalculateNormals();
+        mesh.RecalculateBounds();
+        return mesh;
+    }
+
+    static Material CreateDefaultAntMaterial()
+    {
+        // URP Unlit with GPU Instancing
+        var shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Unlit/Color");
+        var mat = new Material(shader);
+        mat.color = Color.red;
+        mat.enableInstancing = true;
+        return mat;
+    }
+
+    /// <summary>
+    /// Creates a runtime obstacle mask with impassable borders.
+    /// Call this if you don't have an authored obstacle texture.
+    /// </summary>
+    public static Texture2D CreateDefaultObstacleMask(int size, int borderWidth = 2)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.R8, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp
+        };
+
+        var pixels = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                bool border = x < borderWidth || x >= size - borderWidth
+                           || y < borderWidth || y >= size - borderWidth;
+                pixels[y * size + x] = new Color32(border ? (byte)0 : (byte)255, 0, 0, 255);
+            }
+        }
+
+        tex.SetPixels32(pixels);
+        tex.Apply();
+        return tex;
     }
 }

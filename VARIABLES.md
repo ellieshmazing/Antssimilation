@@ -21,3 +21,7 @@
 | `speed` | float | AntData | Per-ant movement speed | Initialized from config; allows per-ant variation. | AntUpdateJob movement |
 | `state` | int | AntData | 0 = SEARCHING, 1 = CARRYING | Determines which pheromone channel is followed and deposited. | AntUpdateJob steering + state transitions, PheromoneCompute deposit |
 | `rng` | Random | AntData | Per-ant Burst-compatible RNG | Seeded uniquely per ant; provides jitter and tie-breaking. | AntUpdateJob steering |
+| `foodTrailColor` | Color | AntSimulation | Additive color for the food-return pheromone (R channel) | Orange by default; determines how food trails look in vis mode. | PheromoneVis shader |
+| `homeTrailColor` | Color | AntSimulation | Additive color for the home-search pheromone (G channel) | Cyan by default; determines how search trails look in vis mode. | PheromoneVis shader |
+| `visBrightness` | float | AntSimulation | Multiplier applied to pheromone values before saturate in vis shader | Higher = trails visible at lower pheromone concentrations. 1.0–10.0 range. | PheromoneVis shader |
+| `showPheromoneVis` | bool | AntSimulation | Toggles pheromone gradient overlay on/off (P key) | True = render the trail heatmap behind ants. | AntSimulation rendering |
