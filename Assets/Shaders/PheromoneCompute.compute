@@ -1,0 +1,92 @@
+#pragma kernel DepositPass
+#pragma kernel DiffuseHorizontal
+#pragma kernel DiffuseVerticalAndEvaporate
+
+struct AntGpuData
+{
+    float2 position;
+    int state;
+};
+
+RWTexture2D<float4> _PheromoneTexture;
+RWTexture2D<float4> _TempTexture;
+Texture2D<float4>   _ObstacleMask;
+
+StructuredBuffer<AntGpuData> _AntBuffer;
+StructuredBuffer<float>      _GaussianWeights;
+
+float  _DepositAmount;
+float  _DeltaTime;
+float  _EvaporationRate;
+int    _TextureSize;
+int    _KernelRadius;
+float2 _WorldOrigin;
+float2 _WorldSize;
+int    _AntCount;
+
+int2 WorldToTexel(float2 worldPos)
+{
+    float2 uv = (worldPos - _WorldOrigin) / _WorldSize;
+    return int2(floor(uv * float(_TextureSize)));
+}
+
+// --- Kernel 0: Deposit ---------------------------------------------------
+
+[numthreads(64, 1, 1)]
+void DepositPass(uint id : SV_DispatchThreadID)
+{
+    if ((int)id >= _AntCount) return;
+
+    AntGpuData ant = _AntBuffer[id];
+    int2 texel = WorldToTexel(ant.position);
+
+    if (texel.x < 0 || texel.x >= _TextureSize || texel.y < 0 || texel.y >= _TextureSize)
+        return;
+
+    float4 current = _PheromoneTexture[texel];
+
+    if (ant.state == 0) // SEARCHING → deposit home trail (G)
+        current.g += _DepositAmount;
+    else                // CARRYING → deposit food trail (R)
+        current.r += _DepositAmount;
+
+    _PheromoneTexture[texel] = current;
+}
+
+// --- Kernel 1: Horizontal blur --------------------------------------------
+
+[numthreads(8, 8, 1)]
+void DiffuseHorizontal(uint2 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _TextureSize || (int)id.y >= _TextureSize) return;
+
+    float4 sum = float4(0, 0, 0, 0);
+    for (int k = -_KernelRadius; k <= _KernelRadius; k++)
+    {
+        int sx = clamp((int)id.x + k, 0, _TextureSize - 1);
+        sum += _PheromoneTexture[int2(sx, (int)id.y)] * _GaussianWeights[k + _KernelRadius];
+    }
+
+    float obstacle = _ObstacleMask.Load(int3(id, 0)).r;
+    _TempTexture[id] = sum * obstacle;
+}
+
+// --- Kernel 2: Vertical blur + evaporation --------------------------------
+
+[numthreads(8, 8, 1)]
+void DiffuseVerticalAndEvaporate(uint2 id : SV_DispatchThreadID)
+{
+    if ((int)id.x >= _TextureSize || (int)id.y >= _TextureSize) return;
+
+    float decayThisFrame = pow(_EvaporationRate, _DeltaTime);
+
+    float4 sum = float4(0, 0, 0, 0);
+    for (int k = -_KernelRadius; k <= _KernelRadius; k++)
+    {
+        int sy = clamp((int)id.y + k, 0, _TextureSize - 1);
+        sum += _TempTexture[int2((int)id.x, sy)] * _GaussianWeights[k + _KernelRadius];
+    }
+
+    float obstacle = _ObstacleMask.Load(int3(id, 0)).r;
+    _PheromoneTexture[id] = sum * obstacle * decayThisFrame;
+}

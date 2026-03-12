@@ -97,10 +97,7 @@ InitTestScene*.unity*
 
 # Auto-generated scenes by play mode tests
 /[Aa]ssets/[Ii]nit[Tt]est[Ss]cene*.unity*
-<<<<<<< HEAD
 
 # Claude assets
 .claude/
 CLAUDE.md
-=======
->>>>>>> d94a38f87575fb8f35350a0dea7a57505b3328f4
